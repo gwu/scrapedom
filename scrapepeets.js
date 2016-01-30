@@ -26,6 +26,7 @@ main();
 
 function main() {
   console.log('NAME,KEYWORDS,DESCRIPTION,SKU,BUYURL,AVAILABLE,IMAGEURL,PRICE');
+
   Q
     .fcall(function() {
       return Object.keys(categoryMap).map(scrapeCategory)
@@ -35,6 +36,7 @@ function main() {
     .then(function(list) {
       return _(list).orderBy('buyurl').sortedUniqBy('buyurl').value();
     })
+    .then(tfIdf)
     .then(function(list) {
       list.map(function(p) {
         console.log([
@@ -48,6 +50,56 @@ function main() {
           p.price
         ].join(','));
       });
+    });
+}
+
+function tokenize(str) {
+  return _(str.replace(/[^A-Za-z]/g, ' ').toLowerCase().split(' '))
+    .filter(function(token) { return token.length > 0; })
+    .value();
+}
+
+function tfIdf(products) {
+  var documents = _(products)
+    .map(function(p) { return tokenize(p.description).concat(tokenize(p.name)); })
+    .value();
+
+  var uniqTokens = _(documents)
+    .flatten()
+    .uniq();
+
+  var df = _(uniqTokens)
+    .map(function(token) {
+      return [
+        token,
+        _(documents)
+          .filter(function(p) { return _.indexOf(p, token) !== -1; })
+          .value()
+          .length
+      ];
+    })
+    .fromPairs()
+    .value();
+
+  return _.zip(products, documents)
+    .map(function(pd) {
+      var tf = _(pd[1]).countBy().value();
+      var tokens = _(pd[1])
+        .uniq()
+        .map(function(token) {
+          return {
+            token: token,
+            score: tf[token] / df[token]
+          };
+        })
+        .filter(function(token) {
+          return token.score > 0.4;
+        })
+        .orderBy('score', 'desc')
+        .map('token')
+        .value();
+      pd[0].keywords = tokens.join(',');
+      return pd[0];
     });
 }
 
@@ -99,6 +151,26 @@ function getProductName(element) {
 
 function getProductKeywords(element) {
   var keywords = getProductName(element).replace(/[^A-Za-z ]/g, ' ').toLowerCase().split(' ');
+  var body = parseInt(element.querySelector('.beans-category div:nth-child(1)').className.substring(5));
+  if (body >= 1 && body <= 2) {
+    keywords.push('medium');
+  }
+  if (body >= 2 && body <= 4) {
+    keywords.push('full');
+  }
+  if (body >= 4 && body <= 5) {
+    keywords.push('complex');
+  }
+  var liveliness = parseInt(element.querySelector('.beans-category > div:nth-child(2)').className.substring(11));
+  if (liveliness >= 1 && liveliness <= 2) {
+    keywords.push('smooth');
+  }
+  if (liveliness >= 2 && liveliness <= 4) {
+    keywords.push('balanced');
+  }
+  if (liveliness >= 4 && liveliness <= 5) {
+    keywords.push('bright');
+  }
   return _.filter(keywords, function(keyword) { return keyword.length > 0; }).join(',');
 }
 
